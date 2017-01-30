@@ -22,7 +22,7 @@ cover.sync<-spatial_sync_raster(cover.r, aus.r, method="bilinear")
 rugged.sync<-spatial_sync_raster(rugged.r, aus.r, method="bilinear")
 
 # Add in Fox Data ####
-foxes<- read_csv("Ayesha_data/Fox_densities_7Dec2016.csv",col_types = "cccnnccccnncccnnnnccccccc") %>% 
+foxes<- read_csv("Fox Model/Ayesha_data/Fox_densities_7Dec2016.csv",col_types = "cccnnccccnncccnnnnccccccc") %>% 
   select(year_pub=`Year of Publication`,year_coll=`Year of Publication`,Month,lat=GDALat,long=GDALong,density=`Density (per km2)`,dingoes=`Dingoes present`) %>%
   filter(!is.na(lat) & !is.na(density)) # removes shitty NAs that were causing setting coordinates to fail.
 
@@ -77,8 +77,8 @@ wi<-for.wi/sum(for.wi)
 
 R2<-c(summary(m1)[8], summary(m2)[8], summary(m3)[8], summary(m4)[8], summary(m5)[8], summary(m6)[8], summary(m7)[8], summary(m8)[8], summary(m9)[8], summary(m10)[8], summary(m1r)[8], summary(m2r)[8], summary(m3r)[8], summary(m4r)[8], summary(m5r)[8], summary(m6r)[8], summary(m7r)[8], summary(m8r)[8], summary(m9r)[8], summary(m10r)[8])
 
-write.table(di, "temp_outputs/di_avg.csv", sep=",", row.names=F)
-write.table(R2, "temp_outputs/R2_avg.csv", sep=",", row.names=F)
+write.table(di, "Fox Model/temp_outputs/di_avg.csv", sep=",", row.names=F)
+write.table(R2, "Fox Model/temp_outputs/R2_avg.csv", sep=",", row.names=F)
 
 coef.int<-wi[1]*coef(m1)["(Intercept)"]+ wi[2]*coef(m2)["(Intercept)"]+ wi[3]*coef(m3)["(Intercept)"]+ wi[4]*coef(m4)["(Intercept)"]+ wi[5]*coef(m5)["(Intercept)"]+ wi[6]*coef(m6)["(Intercept)"]+ wi[7]*coef(m7)["(Intercept)"]+ wi[8]*coef(m8)["(Intercept)"]+ wi[9]*coef(m9)["(Intercept)"]+ wi[10]*coef(m10)["(Intercept)"]+ wi[11]*coef(m1r)["(Intercept)"]+ wi[12]*coef(m2r)["(Intercept)"]+ wi[13]*coef(m3r)["(Intercept)"]+ wi[14]*coef(m4r)["(Intercept)"]+ wi[15]*coef(m5r)["(Intercept)"]+ wi[16]*coef(m6r)["(Intercept)"]+ wi[17]*coef(m7r)["(Intercept)"]+ wi[18]*coef(m8r)["(Intercept)"]+ wi[19]*coef(m9r)["(Intercept)"]+ wi[20]*coef(m10r)["(Intercept)"]
 
@@ -165,7 +165,8 @@ p10r<-fit.CI.function(fit10r, se10r)
 
 max.predicted.mainland<-exp(max(wi[1]*predict(m1)+ wi[2]*predict(m2)+ wi[3]*predict(m3)+ wi[4]*predict(m4)+ wi[5]*predict(m5)+ wi[6]*predict(m6)+ wi[7]*predict(m7)+ wi[8]*predict(m8)+ wi[9]*predict(m9)+ wi[10]*predict(m10)+ wi[11]*predict(m1r)+ wi[12]*predict(m2r)+ wi[13]*predict(m3r)+ wi[14]*predict(m4r)+ wi[15]*predict(m5r)+ wi[16]*predict(m6r)+ wi[17]*predict(m7r)+ wi[18]*predict(m8r)+ wi[19]*predict(m9r)+ wi[20]*predict(m10r)))
 
-pred.map<-p2
+## Selected predicted output by choosing model by lowest AIC; e.g., model m10r
+pred.map<-p10r
 write.table(cbind(vary.map$map, pred.map), "Fox Model/temp_outputs/predictions.map_avg.csv", sep=",", row.names=F)
 
 #Predict total Australian population and mean density
@@ -180,7 +181,7 @@ writeRaster(mainland.density, "Fox Model/temp_outputs/mainland_density_avg.tif",
 plot(mainland.density)
 plot(foxes, bg="transparent", add=TRUE)
 
-(mean.density<-cellStats(density, mean))
+(mean.density<-cellStats(mainland.density, mean))
 (total.population<-mean.density*cellStats(aus.r, sum))
 
 #Confidence intervals of continent-wide density (based on boot-strapping dataset)
@@ -202,14 +203,17 @@ AICc<-function(model){
 K<-length(coef(model))
 (AIC(model)+2*K*(K+1)/(length(resid(model))-K-1))}
 
-density.func<-function(x) {
-x[,1]=density, x[,2]=map, x[,3]=mat, x[,4]=cover 
+density.func<-function(x){
+  x[,1]=density
+  x[,2]=map
+  x[,3]=mat
+  x[,4]=cover 
 }
 
 mainland.data<-x[(x[,6])==1,]
 
 #Mainland model
-m.density<-mainland.data [,1]
+m.density<-mainland.data[,1]
 m.map<-mainland.data [,2]
 m.mat<-mainland.data [,3]
 m.cover<-mainland.data [,4]
