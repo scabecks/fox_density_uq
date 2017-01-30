@@ -7,13 +7,13 @@ library(spatial.tools)
 library(readr)
 library(dplyr)
 
-aus.r<-raster("BrettMurphy_data_/Spatial data/aus_1_1km")
-map.r<-raster("BrettMurphy_data_/Spatial data/map_albers") ###Mean annual rainfall
-mat.r<-raster("BrettMurphy_data_/Spatial data/mat_albers") ###Mean annual temperature
-cover.r<-raster("BrettMurphy_data_/Spatial data/cover_5kmrad") ###MODIS tree cover
-rugged.r<-raster("BrettMurphy_data_/Spatial data/rugged_5kmra2") ###Ruggedness, standard deviation of elevation
-fox.r<-raster("BrettMurphy_data_/Spatial data/fox_1km")  #Fox range
-mainland.r <- raster("BrettMurphy_data_/Spatial data/isl_area_1km/")
+aus.r<-raster("Fox Model/BrettMurphy_data_/Spatial data/aus_1_1km")
+map.r<-raster("Fox Model/BrettMurphy_data_/Spatial data/map_albers") ###Mean annual rainfall
+mat.r<-raster("Fox Model/BrettMurphy_data_/Spatial data/mat_albers") ###Mean annual temperature
+cover.r<-raster("Fox Model/BrettMurphy_data_/Spatial data/cover_5kmrad") ###MODIS tree cover
+rugged.r<-raster("Fox Model/BrettMurphy_data_/Spatial data/rugged_5kmra2") ###Ruggedness, standard deviation of elevation
+fox.r<-raster("Fox Model/BrettMurphy_data_/Spatial data/fox_1km")  #Fox range
+mainland.r <- raster("Fox Model/BrettMurphy_data_/Spatial data/isl_area_1km/")
 mainland.r<-reclassify(mainland.r, c(-Inf,10000, 0, 10000, Inf, 1))
 
 map.sync<-spatial_sync_raster(map.r, aus.r, method="bilinear")
@@ -22,10 +22,10 @@ cover.sync<-spatial_sync_raster(cover.r, aus.r, method="bilinear")
 rugged.sync<-spatial_sync_raster(rugged.r, aus.r, method="bilinear")
 
 # Add in Fox Data ####
-foxes<- read_csv("Ayesha_data/Fox_densities_7Dec2016.csv",col_types = "cccnnccccnncccnnnnccccccc") %>% select(year_pub=`Year of Publication`,year_coll=`Year of Publication`,Month,lat=GDALat,long=GDALong,density=`Density (per km2)`,dingoes=`Dingoes present`)
-  
-  #,col_types = 'ccnncccddcccnccc')
-foxes <- foxes %>% filter(!is.na(lat) & !is.na(density)) # removes shitty NAs that were causing setting coordinates to fail.
+foxes<- read_csv("Ayesha_data/Fox_densities_7Dec2016.csv",col_types = "cccnnccccnncccnnnnccccccc") %>% 
+  select(year_pub=`Year of Publication`,year_coll=`Year of Publication`,Month,lat=GDALat,long=GDALong,density=`Density (per km2)`,dingoes=`Dingoes present`) %>%
+  filter(!is.na(lat) & !is.na(density)) # removes shitty NAs that were causing setting coordinates to fail.
+
 coordinates(foxes)<-~long+lat
 projection(foxes)<-CRS("+proj=longlat +datum=WGS84")
 foxes<-spTransform(foxes, projection(map.r))
@@ -166,7 +166,7 @@ p10r<-fit.CI.function(fit10r, se10r)
 max.predicted.mainland<-exp(max(wi[1]*predict(m1)+ wi[2]*predict(m2)+ wi[3]*predict(m3)+ wi[4]*predict(m4)+ wi[5]*predict(m5)+ wi[6]*predict(m6)+ wi[7]*predict(m7)+ wi[8]*predict(m8)+ wi[9]*predict(m9)+ wi[10]*predict(m10)+ wi[11]*predict(m1r)+ wi[12]*predict(m2r)+ wi[13]*predict(m3r)+ wi[14]*predict(m4r)+ wi[15]*predict(m5r)+ wi[16]*predict(m6r)+ wi[17]*predict(m7r)+ wi[18]*predict(m8r)+ wi[19]*predict(m9r)+ wi[20]*predict(m10r)))
 
 pred.map<-p2
-write.table(cbind(vary.map$map, pred.map), "temp_outputs/predictions.map_avg.csv", sep=",", row.names=F)
+write.table(cbind(vary.map$map, pred.map), "Fox Model/temp_outputs/predictions.map_avg.csv", sep=",", row.names=F)
 
 #Predict total Australian population and mean density
 mainland.density<-overlay(aus.r, map.sync, mat.sync, cover.sync, rugged.sync, fun=function(x,y,z,z2,z4){
@@ -175,7 +175,7 @@ mainland.density<-overlay(aus.r, map.sync, mat.sync, cover.sync, rugged.sync, fu
 #Ensure we're not extrapolating beyond our data
 mainland.density<-reclassify(mainland.density, c(max.predicted.mainland, Inf, max.predicted.mainland))
 
-writeRaster(mainland.density, "temp_outputs/mainland_density_avg.tif", format="GTiff", overwrite=TRUE)
+writeRaster(mainland.density, "Fox Model/temp_outputs/mainland_density_avg.tif", format="GTiff", overwrite=TRUE)
 
 plot(mainland.density)
 plot(foxes, bg="transparent", add=TRUE)
@@ -274,6 +274,6 @@ quantile(sim.densities,c(0.025, 0.975))
 quantile(sim.densities,c(0.025, 0.975))*cellStats(aus.r, sum)
 hist(sim.densities*cellStats(aus.r, sum), xlim=c(0,5), breaks=10000)
 
-write.table(c(cellStats(aus.r, sum), sim.densities), "temp_outputs/simulation_avg.csv", sep=",", row.names=F)
+write.table(c(cellStats(aus.r, sum), sim.densities), "Fox Model/temp_outputs/simulation_avg.csv", sep=",", row.names=F)
 
 
