@@ -27,3 +27,12 @@ cent_sf <- st_as_sf(cent,coords=c("x","y"), crs = 3577)
 
 # save to geopackage
 st_write(cent_sf,'Fox_Model/foxes_cluster_points.gpkg')
+
+# some plots; note you need the develpment version to use the sf geoms....
+library(ggplot2)
+aus_boundary <- st_transform(st_as_sf(getData("GADM", country = "AU", level = 0), crs=4326),crs = 3577)
+
+ggplot(aus_boundary) +
+  geom_sf() +
+  geom_sf(data = cent_sf)
+
