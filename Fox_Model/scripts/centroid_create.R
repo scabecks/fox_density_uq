@@ -1,13 +1,12 @@
 # Aggregates data points with 'n' distance as centroids
 # To be used to aggregate data values within aggregation distnce
-library(sf)
-library(rgeos)
-library(geosphere)
-library(sp)
+pacman::p_load(sf, rgeos, geosphere, sp, dplyr, rpostgis, ggplot2)
 
 foxes <- read_sf("Fox_Model/foxes_points.gpkg")
+foxes <- foxes %>% mutate(density=as.numeric(ifelse(density=='TBA',NA,density)))
+
 foxes_sp <- as(foxes,"Spatial") # convert sf to sp
-mdist <- distm(spTransform(foxes_sp,CRS("+init=epsg:4326"))) # requires in 4326 / lat-long
+mdist <- distm(spTransform(foxes_sp,CRS("+init=epsg:4326"))) # requires input in 4326 / lat-long
 hc<-hclust(as.dist(mdist),method = 'complete') # cluster by distance
 foxes_sp$clust <- cutree(hc, h = 1000) # 1km disrance
 
@@ -26,13 +25,22 @@ names(cent) <- c("x","y")
 cent_sf <- st_as_sf(cent,coords=c("x","y"), crs = 3577)
 
 # save to geopackage
-st_write(cent_sf,'Fox_Model/foxes_cluster_points.gpkg')
+st_write(cent_sf,'Fox_Model/foxes_cluster_centroids.gpkg')
+cent_sf <- read_sf("Fox_Model/foxes_cluster_centroids.gpkg") %>% 
+  mutate(gid = row_number())# if need to read back in; adds a unique ID to aggregate by
 
-# some plots; note you need the develpment version to use the sf geoms....
-library(ggplot2)
-aus_boundary <- st_transform(st_as_sf(getData("GADM", country = "AU", level = 0), crs=4326),crs = 3577)
+# Aggregate values within 1km of aggregated centroids
+st_join(foxes, st_buffer(cent_sf, dist = 1000)) %>% # 1km buffer
+  group_by(gid) %>%
+  summarise(cnt=n(), min_den = min(density), max_den = max(density), mean_density=mean(density)) -> foxes_agg
+
+write_sf(foxes_agg, "Fox_Model/foxes_points_aggregated.gpkg")              
+
+#### some plots; note you need the development version of ggplot to use the sf geoms....
+aus_boundary <- st_transform(st_intersection(st_as_sf(getData("GADM", country = "AU", level = 0), crs=4326), st_sfc(st_polygon(list(rbind(c(110,-45), c(110,-8), c(154,-8), c(154,-45), c(110,-45)))), crs=4326)), crs = 3577) # this clips the area down to not include macquerie and christmas islands ini the AUS extent
 
 ggplot(aus_boundary) +
   geom_sf() +
-  geom_sf(data = cent_sf)
+  geom_sf(data = foxes_agg, aes(colour=mean_density)) +
+  scale_color_gradient(low = 'blue', high = 'red')
 
