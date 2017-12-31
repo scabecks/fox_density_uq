@@ -1,13 +1,8 @@
-library(nlme)
-library(maptools)
-library(sf)
-library(rgdal)
-library(raster)
-library(spatial.tools)
-library(readr)
-library(dplyr)
+#### Something something
 
-setwd("~/Dropbox/UQ_Work/Projects/fox_model_working/Fox Model/")
+pacman::p_load(nlme, maptools, sf, rgdal, raster, spatial.tools, readr, dplyr, ggplot2, rasterVis, viridis)
+
+setwd("~/Dropbox/UQ_Work/Projects/fox_model_working/Fox_Model/")
 
 # Loading files from HCE Desktop ####
 aus.r<-raster("BrettMurphy_data_/Spatial data/aus_1_1km")
@@ -28,87 +23,76 @@ cover.sync<-spatial_sync_raster(cover.r, aus.r, method="bilinear")
 rugged.sync<-spatial_sync_raster(rugged.r, aus.r, method="bilinear")
 dist.sync <- spatial_sync_raster(clum_dist.r, aus.r, method = "bilinear")
 
-# Add in Fox Data ####
-# Only needed to load data from the CSV
-foxes<- tbl_df(read_csv("Ayesha_data/Fox_densities_7Dec2016_HCE_copy.csv"))#, col_types = "cccnnccccnnccnccncccccccn"))
-
-%>% 
+# Add in Ayesha's Fox Data; only needed to load data from the CSV
+foxes<- tbl_df(read_csv("Ayesha_data/Fox_densities_7Dec2016.csv")) %>%
   select(year_pub=`Year of Publication`,year_coll=`Year of Publication`,Month,lat=GDALat,long=GDALong,density=`Density (per km2)`,dingoes=`Dingoes present`) %>%
-  filter(!is.na(lat) & !is.na(density)) # removes shitty NAs that were causing setting coordinates to fail
-
-
-
-
-
-# DEsktop location ####
-#foxes<- read_csv("Ayesha_data/Fox_densities_7Dec2016_HCE.csv") %>% dplyr::select(year_pub=`Year of Publication`,year_coll=`Year of Publication`,Month,lat=GDALat,long=GDALong,density=`Density (per km2)`,dingoes=`Dingoes present`)  %>%
-#  filter(!is.na(lat) & !is.na(density)) %>% as.data.frame()
+  filter(!is.na(lat) & !is.na(density), density != 'TBA') %>% 
+  mutate(density=as.numeric(density))# removes shitty NAs that were causing setting coordinates to fail, and converts density to a double as TBA values render it as character
 
 coordinates(foxes)<-~long+lat
 projection(foxes)<-CRS("+proj=longlat +datum=WGS84")
 foxes<-spTransform(foxes, projection(map.r))
 writeOGR(foxes, dsn = 'foxes_points.gpkg', layer = 'foxes', driver = 'GPKG')
 
-foxes <- readOGR("foxes_points.gpkg","foxes")
+# Read in data if previously saved
+#foxes_sp <- as(read_sf("foxes_points.gpkg"), "Spatial") # if need to read back in
+foxes_agg_sp <- as(st_cast(read_sf("foxes_points_aggregated.gpkg"), 'POINT'),'Spatial') # Read in aggregated centroids data and convert to single point sp class
 
-# Yep ####
-foxes$map<-extract(map.r, foxes, na.rm=T, buffer=5000, fun=mean)
-foxes$mat<-extract(mat.r, foxes, na.rm=T, buffer=5000, fun=mean)
-foxes$cover<-extract(cover.r, foxes, na.rm=T, buffer=5000, fun=mean)
-foxes$rugged<-extract(rugged.r, foxes, na.rm=T, buffer=5000, fun=mean)
-foxes$dist <- extract(clum_dist.r, foxes, na.rm=T, buffer=5000, fun=mean)
+#### Extract raster values at points
+foxes_agg_sp$map<- extract(map.r, foxes_agg_sp, na.rm=T, buffer=5000, fun=mean)
+foxes_agg_sp$mat<-extract(mat.r, foxes_agg_sp, na.rm=T, buffer=5000, fun=mean)
+foxes_agg_sp$cover<-extract(cover.r, foxes_agg_sp, na.rm=T, buffer=5000, fun=mean)
+foxes_agg_sp$rugged<-extract(rugged.r, foxes_agg_sp, na.rm=T, buffer=5000, fun=mean)
+foxes_agg_sp$dist <- extract(clum_dist.r, foxes_agg_sp, na.rm=T, buffer=5000, fun=mean)
 
-#Mainland model ####
-data<-tbl_df(foxes@data)
-data %>% filter(density != 'TBA') %>% mutate(density=as.numeric(density))
-
-data$density <- as.numeric(data$density)
-data$x_albers<-coordinates(foxes)[,1]
-data$y_albers<-coordinates(foxes)[,1]
-data$x_albers2<-coordinates(foxes)[,1]+runif(length(data[,1]),0,1000)
-data$y_albers2<-coordinates(foxes)[,1]+runif(length(data[,1]),0,1000)
+#### Mainland model ####
+data_agg<-tbl_df(foxes_agg_sp@data)
+#data_agg$x_albers<-coordinates(foxes_agg_sp)[,1] # I don't know why they are doing this; it doens't get used for anything as far as I can tell -scott
+#data_agg$y_albers<-coordinates(foxes_agg_sp)[,2]
+#data_agg$x_albers2<-coordinates(foxes_agg_sp)[,1]+runif(length(data_agg[,1]),0,1000)
+#data_agg$y_albers2<-coordinates(foxes_agg_sp)[,2]+runif(length(data_agg[,1]),0,1000)
 
 #### Save as R binary ####
-#saveRDS(data,"data.rds", compress = 'gzip')
-readRDS("data.rds") #read back in if needed
+saveRDS(data_agg,"data_agg.rds", compress = 'gzip')
+#readRDS("data_agg.rds") #read back in if needed
 
 #data.ml<-data[data$island.size>60000,]
-data.ml <- data %>% mutate(density=as.numeric(density)) %>% filter(density > 0)# just saving on retyping by renaming to data.ml
+data_agg.ml <- data_agg %>% filter(mean_density > 0)# just saving on retyping by renaming to data.ml
 
 AICc<-function(model){
 K<-length(coef(model))
 (AIC(model)+2*K*(K+1)/(length(resid(model))-K-1))}
 
-m1<-lm(log(density)~1, data=data.ml)
-m2<-lm(log(density)~log(map), data=data.ml)
-m3<-lm(log(density)~mat, data=data.ml)
-m4<-lm(log(density)~log(map)+mat, data=data.ml)
-m5<-lm(log(density)~cover, data=data.ml)
-m6<-lm(log(density)~log(map)+cover, data=data.ml)
-m7<-lm(log(density)~mat+cover, data=data.ml)
-m8<-lm(log(density)~log(map)+mat+cover, data=data.ml)
-m9<-lm(log(density)~log(map)+mat+log(map):mat, data=data.ml)
-m10<-lm(log(density)~log(map)+mat+cover+log(map):mat, data=data.ml)
-m1r<-lm(log(density)~rugged, data=data.ml)
-m2r<-lm(log(density)~log(map)+rugged, data=data.ml)
-m3r<-lm(log(density)~mat+rugged, data=data.ml)
-m4r<-lm(log(density)~log(map)+mat+rugged, data=data.ml)
-m5r<-lm(log(density)~cover+rugged, data=data.ml)
-m6r<-lm(log(density)~log(map)+cover+rugged, data=data.ml)
-m7r<-lm(log(density)~mat+cover+rugged, data=data.ml)
-m8r<-lm(log(density)~log(map)+mat+cover+rugged, data=data.ml)
-m9r<-lm(log(density)~log(map)+mat+log(map):mat+rugged, data=data.ml)
-m10r<-lm(log(density)~log(map)+mat+cover+log(map):mat+rugged, data=data.ml)
+m1<-lm(log(mean_density)~1, data = data_agg.ml)
+m2<-lm(log(mean_density)~log(map), data = data_agg.ml)
+m3<-lm(log(mean_density)~mat, data=data_agg.ml)
+m4<-lm(log(mean_density)~log(map)+mat, data=data_agg.ml)
+m5<-lm(log(mean_density)~cover, data=data_agg.ml)
+m6<-lm(log(mean_density)~log(map)+cover, data=data_agg.ml)
+m7<-lm(log(mean_density)~mat+cover, data=data_agg.ml)
+m8<-lm(log(mean_density)~log(map)+mat+cover, data=data_agg.ml)
+m9<-lm(log(mean_density)~log(map)+mat+log(map):mat, data=data_agg.ml)
+m10<-lm(log(mean_density)~log(map)+mat+cover+log(map):mat, data=data_agg.ml)
+m1r<-lm(log(mean_density)~rugged, data=data_agg.ml)
+m2r<-lm(log(mean_density)~log(map)+rugged, data=data_agg.ml)
+m3r<-lm(log(mean_density)~mat+rugged, data=data_agg.ml)
+m4r<-lm(log(mean_density)~log(map)+mat+rugged, data=data_agg.ml)
+m5r<-lm(log(mean_density)~cover+rugged, data=data_agg.ml)
+m6r<-lm(log(mean_density)~log(map)+cover+rugged, data=data_agg.ml)
+m7r<-lm(log(mean_density)~mat+cover+rugged, data=data_agg.ml)
+m8r<-lm(log(mean_density)~log(map)+mat+cover+rugged, data=data_agg.ml)
+m9r<-lm(log(mean_density)~log(map)+mat+log(map):mat+rugged, data=data_agg.ml)
+m10r<-lm(log(mean_density)~log(map)+mat+cover+log(map):mat+rugged, data=data_agg.ml)
 
 AICcs<-c(AICc(m1), AICc(m2), AICc(m3), AICc(m4), AICc(m5), AICc(m6), AICc(m7), AICc(m8), AICc(m9), AICc(m10), AICc(m1r), AICc(m2r), AICc(m3r), AICc(m4r), AICc(m5r), AICc(m6r), AICc(m7r), AICc(m8r), AICc(m9r), AICc(m10r))
-di<-AICcs-min(AICcs)
+di_agg<-AICcs-min(AICcs)
 for.wi<-exp(-0.5*di)
 wi<-for.wi/sum(for.wi)
 
-R2<-c(summary(m1)[8], summary(m2)[8], summary(m3)[8], summary(m4)[8], summary(m5)[8], summary(m6)[8], summary(m7)[8], summary(m8)[8], summary(m9)[8], summary(m10)[8], summary(m1r)[8], summary(m2r)[8], summary(m3r)[8], summary(m4r)[8], summary(m5r)[8], summary(m6r)[8], summary(m7r)[8], summary(m8r)[8], summary(m9r)[8], summary(m10r)[8])
+R2_agg<-c(summary(m1)[8], summary(m2)[8], summary(m3)[8], summary(m4)[8], summary(m5)[8], summary(m6)[8], summary(m7)[8], summary(m8)[8], summary(m9)[8], summary(m10)[8], summary(m1r)[8], summary(m2r)[8], summary(m3r)[8], summary(m4r)[8], summary(m5r)[8], summary(m6r)[8], summary(m7r)[8], summary(m8r)[8], summary(m9r)[8], summary(m10r)[8])
 
-write.table(di, "../di_avg.csv", sep=",", row.names=F)
-write.table(R2, "../R2_avg.csv", sep=",", row.names=F)
+write.table(di, "../di_agg_avg.csv", sep=",", row.names=F)
+write.table(R2, "../R2_agg_avg.csv", sep=",", row.names=F)
 
 coef.int<-wi[1]*coef(m1)["(Intercept)"]+ wi[2]*coef(m2)["(Intercept)"]+ wi[3]*coef(m3)["(Intercept)"]+ wi[4]*coef(m4)["(Intercept)"]+ wi[5]*coef(m5)["(Intercept)"]+ wi[6]*coef(m6)["(Intercept)"]+ wi[7]*coef(m7)["(Intercept)"]+ wi[8]*coef(m8)["(Intercept)"]+ wi[9]*coef(m9)["(Intercept)"]+ wi[10]*coef(m10)["(Intercept)"]+ wi[11]*coef(m1r)["(Intercept)"]+ wi[12]*coef(m2r)["(Intercept)"]+ wi[13]*coef(m3r)["(Intercept)"]+ wi[14]*coef(m4r)["(Intercept)"]+ wi[15]*coef(m5r)["(Intercept)"]+ wi[16]*coef(m6r)["(Intercept)"]+ wi[17]*coef(m7r)["(Intercept)"]+ wi[18]*coef(m8r)["(Intercept)"]+ wi[19]*coef(m9r)["(Intercept)"]+ wi[20]*coef(m10r)["(Intercept)"]
 
@@ -123,10 +107,10 @@ coef.mapXmat<-wi[9]*coef(m9)["log(map):mat"]+ wi[10]*coef(m10)["log(map):mat"]+ 
 coef.rugged<-wi[11]*coef(m1r)["rugged"]+ wi[12]*coef(m2r)["rugged"]+ wi[13]*coef(m3r)["rugged"]+ wi[14]*coef(m4r)["rugged"]+ wi[15]*coef(m5r)["rugged"]+ wi[16]*coef(m6r)["rugged"]+ wi[17]*coef(m7r)["rugged"]+ wi[18]*coef(m8r)["rugged"]+ wi[19]*coef(m9r)["rugged"]+ wi[20]*coef(m10r)["rugged"]
 
 vary.map<-data.frame(
-map=seq(min(data.ml$map), max(data.ml$map), (max(data.ml$map)-min(data.ml$map))/500),
-mat=rep(mean(data.ml$mat),501),
-cover=rep(mean(data.ml$cover),501),
-rugged=rep(mean(data.ml$rugged),501))
+map=seq(min(data_agg.ml$map), max(data_agg.ml$map), (max(data_agg.ml$map)-min(data_agg.ml$map))/500),
+mat=rep(mean(data_agg.ml$mat),501),
+cover=rep(mean(data_agg.ml$cover),501),
+rugged=rep(mean(data_agg.ml$rugged),501))
 
 fit1<-predict(m1, newdata=vary.map)
 fit2<-predict(m2, newdata=vary.map)
@@ -196,8 +180,8 @@ p10r<-fit.CI.function(fit10r, se10r)
 max.predicted.mainland<-exp(max(wi[1]*predict(m1)+ wi[2]*predict(m2)+ wi[3]*predict(m3)+ wi[4]*predict(m4)+ wi[5]*predict(m5)+ wi[6]*predict(m6)+ wi[7]*predict(m7)+ wi[8]*predict(m8)+ wi[9]*predict(m9)+ wi[10]*predict(m10)+ wi[11]*predict(m1r)+ wi[12]*predict(m2r)+ wi[13]*predict(m3r)+ wi[14]*predict(m4r)+ wi[15]*predict(m5r)+ wi[16]*predict(m6r)+ wi[17]*predict(m7r)+ wi[18]*predict(m8r)+ wi[19]*predict(m9r)+ wi[20]*predict(m10r)))
 
 ## Selected predicted output by choosing model by lowest AIC; e.g., model m10r
-pred.map<-p10r
-write.table(cbind(vary.map$map, pred.map), "predictions.map_avg.csv", sep=",", row.names=F)
+pred.map_agg<-p8r # From above
+write.table(cbind(vary.map$map, pred.map_agg), "predictions.map_agg_avg.csv", sep=",", row.names=F)
 
 #Predict total Australian population and mean density
 mainland.density<-overlay(aus.r, map.sync, mat.sync, cover.sync, rugged.sync, fun=function(x,y,z,z2,z4){
@@ -208,15 +192,23 @@ mainland.density<-reclassify(mainland.density, c(max.predicted.mainland, Inf, ma
 
 writeRaster(mainland.density, "mainland_density_avg.tif", format="GTiff", datatype="FLT4S", createoptions=c("COMPRESS=LZW"), overwrite=TRUE)
 
-plot(mainland.density)
-plot(foxes, bg="transparent", add=TRUE)
+#plot(mainland.density)
+#plot(foxes_agg_sp, bg="transparent", add=TRUE)
 
+gplot(mainland.density) +
+  geom_tile(aes(fill = value)) + 
+  scale_fill_viridis(na.value='transparent') +
+  geom_sf(data = foxes_agg, colour = 'red', inherit.aes = F) +
+  labs(x='Longitude',y='Latitude') +
+  guides(fill=guide_legend(title = "Fox Density per km2"))
+  
 (mean.density<-cellStats(mainland.density, mean))
 (total.population<-mean.density*cellStats(aus.r, sum))
 
 #Confidence intervals of continent-wide density (based on boot-strapping dataset)
-data<-foxes@data
+data<-foxes_agg_sp@data
 
+# Reduced resolution rasters; why?
 reduced.res<-aus.r
 res(reduced.res)<-10000
 aus.coarse<-resample(aus.r, reduced.res, method="bilinear")
@@ -278,8 +270,8 @@ exp(coef.int+coef.map*log(y)+coef.mat*z+coef.mapXmat*log(y)*z+coef.cover*z2)  })
 
 mainland.density[mainland.density>max.predicted.mainland]<-max.predicted.mainland
 
-density<-mainland.density*mainland.coarse#+island.density*occupancy.coarse*islands.coarse
-cellStats(density, mean)}
+density<-mainland.density*mainland.coarse+island.density*occupancy.coarse*islands.coarse
+cellStats(density, mean)
 
 #density.func(cbind(data$density, data$map, data$mat, data$cover, data$fox, data$island.size.prop))
 
@@ -306,6 +298,6 @@ quantile(sim.densities,c(0.025, 0.975))
 quantile(sim.densities,c(0.025, 0.975))*cellStats(aus.r, sum)
 hist(sim.densities*cellStats(aus.r, sum), xlim=c(0,5), breaks=10000)
 
-write.table(c(cellStats(aus.r, sum), sim.densities), "Fox Model/temp_outputs/simulation_avg.csv", sep=",", row.names=F)
+write.table(c(cellStats(aus.r, sum), sim.densities), "Fox Model/temp_outputs/simulation_agg_avg.csv", sep=",", row.names=F)
 
 
