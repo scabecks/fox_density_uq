@@ -1,6 +1,6 @@
 #### Something something
 
-pacman::p_load(nlme, maptools, sf, rgdal, raster, spatial.tools, readr, dplyr, ggplot2, rasterVis, viridis)
+pacman::p_load(nlme, maptools, sf, rgdal, raster, spatial.tools, readr, dplyr, ggplot2, rasterVis, viridis,xlsx)
 
 setwd("~/Dropbox/UQ_Work/Projects/fox_model_working/Fox_Model/")
 
@@ -24,15 +24,15 @@ rugged.sync<-spatial_sync_raster(rugged.r, aus.r, method="bilinear")
 dist.sync <- spatial_sync_raster(clum_dist.r, aus.r, method = "bilinear")
 
 # Add in Ayesha's Fox Data; only needed to load data from the CSV
-foxes<- tbl_df(read_csv("Ayesha_data/Fox_densities_7Dec2016.csv")) %>%
-  select(year_pub=`Year of Publication`,year_coll=`Year of Publication`,Month,lat=GDALat,long=GDALong,density=`Density (per km2)`,dingoes=`Dingoes present`) %>%
+foxes<- tbl_df(read.xlsx2("Ayesha_data/Fox_densities_22JAN2018.xlsx",sheetIndex = 1,colClasses = c("character","character","character","integer","integer","character","character","character","character","numeric","numeric","character","character","character","numeric","numeric","numeric","numeric"))) %>%
+  select(year_pub=Year.of.Publication,year_coll=Year.of.data.collection,Month,lat=GDALat,long=GDALong,density=Density..per.km2.,dingoes=Dingoes.present) %>%
   filter(!is.na(lat) & !is.na(density), density != 'TBA') %>% 
-  mutate(density=as.numeric(density))# removes shitty NAs that were causing setting coordinates to fail, and converts density to a double as TBA values render it as character
+  mutate(density=as.numeric(density),lat=as.numeric(lat),long=as.numeric(long))# removes shitty NAs that were causing setting coordinates to fail, and converts density to a double as TBA values render it as character
 
 coordinates(foxes)<-~long+lat
 projection(foxes)<-CRS("+proj=longlat +datum=WGS84")
 foxes<-spTransform(foxes, projection(map.r))
-writeOGR(foxes, dsn = 'foxes_points.gpkg', layer = 'foxes', driver = 'GPKG')
+writeOGR(foxes, dsn = 'foxes_points.gpkg', layer = 'foxes', driver = 'GPKG', overwrite_layer = T)
 
 # Read in data if previously saved
 #foxes_sp <- as(read_sf("foxes_points.gpkg"), "Spatial") # if need to read back in
@@ -57,7 +57,7 @@ saveRDS(data_agg,"data_agg.rds", compress = 'gzip')
 #readRDS("data_agg.rds") #read back in if needed
 
 #data.ml<-data[data$island.size>60000,]
-data_agg.ml <- data_agg %>% filter(mean_density > 0)# just saving on retyping by renaming to data.ml
+data_agg.ml <- data_agg %>% filter(mean_density >= 0)# just saving on retyping by renaming to data.ml
 
 AICc<-function(model){
 K<-length(coef(model))
@@ -197,10 +197,10 @@ writeRaster(mainland.density, "mainland_density_avg.tif", format="GTiff", dataty
 
 gplot(mainland.density) +
   geom_tile(aes(fill = value)) + 
-  scale_fill_viridis(na.value='transparent') +
+  scale_fill_viridis_c(na.value='transparent', option = 'C') + #, guide=guide_legend(title = "Fox Density per km2")) +
   geom_sf(data = foxes_agg, colour = 'red', inherit.aes = F) +
   labs(x='Longitude',y='Latitude') +
-  guides(fill=guide_legend(title = "Fox Density per km2"))
+  guides(fill=guide_colorbar(ticks = F), guide=guide_legend(title = "Fox Density per km2"))
   
 (mean.density<-cellStats(mainland.density, mean))
 (total.population<-mean.density*cellStats(aus.r, sum))
