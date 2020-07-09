@@ -11,3 +11,4 @@
 *.png
 *.jpg
 *.docx
+**/input_data/*
