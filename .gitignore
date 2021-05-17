@@ -1,8 +1,9 @@
 *.Rproj.user
 *.Rhistory
 *.RData
+*.Rproj
 *.Ruserdata
-*.tif
+*.tif*
 *.csv
 *.rds
 *.qgs
@@ -12,3 +13,5 @@
 *.jpg
 *.docx
 **/input_data/*
+*.qgz
+*.spyproject*
